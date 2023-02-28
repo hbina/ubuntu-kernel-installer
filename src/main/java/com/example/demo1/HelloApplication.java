@@ -1,16 +1,13 @@
 package com.example.demo1;
 
 import javafx.application.Application;
-import javafx.beans.binding.Bindings;
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.cell.PropertyValueFactory;
@@ -28,8 +25,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,9 +33,14 @@ public class HelloApplication extends Application {
 
     final static SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
     final static String KERNEL_URL = "https://kernel.ubuntu.com/~kernel-ppa/mainline/";
-    final static List<Kernel> kernels = new ArrayList<>();
-    // Add '|((\d)+.(\d)+-rc(\d)+)' to get rc versions
-    final static Pattern PATTERN = Pattern.compile("v(((\\d)+.(\\d)+.(\\d+))|((\\d)+.(\\d)+))/", Pattern.CASE_INSENSITIVE);
+    // Extend this regex to only match the right rows
+    // Is it even worth it?
+    final static Pattern PATTERN = Pattern.compile("v(\\d)", Pattern.CASE_INSENSITIVE);
+
+    final static ReadOnlyObjectProperty<ObservableList<Kernel>> kernelsProperty = new SimpleObjectProperty<>(FXCollections.observableArrayList());
+    final static StringProperty distributionProperty = new SimpleStringProperty();
+    final static StringProperty architectureProperty = new SimpleStringProperty();
+    final static StringProperty currentKernelProperty = new SimpleStringProperty();
 
     public static void main(String[] args) {
         launch(args);
@@ -62,54 +62,65 @@ public class HelloApplication extends Application {
     public void init() {
         StringBuilder rawHTML = new StringBuilder();
 
-        try {
-            String distribution = runCommand("lsb_release", "-sd");
-            String architecture = runCommand("dpkg", "--print-architecture");
-            String current_kernel = runCommand("uname", "-r");
 
-            System.out.println("distribution:" + distribution);
-            System.out.println("architecture:" + architecture);
-            System.out.println("current_kernel:" + current_kernel);
+        Runnable job = () -> {
+            try {
+                distributionProperty.set(runCommand("lsb_release", "-sd"));
+                architectureProperty.set(runCommand("dpkg", "--print-architecture"));
+                currentKernelProperty.set(runCommand("uname", "-r"));
 
+                // create url with the string.
+                URL url = new URL(KERNEL_URL);
+                BufferedReader in = new BufferedReader(new InputStreamReader(url.openStream()));
+                String inputLine = in.readLine();
 
-            // create url with the string.
-            URL url = new URL(KERNEL_URL);
-            BufferedReader in = new BufferedReader(new InputStreamReader(url.openStream()));
-            String inputLine = in.readLine();
-
-            // read every line of the HTML content in the URL
-            // and concat each line to the rawHTML string until every line is read.
-            while (inputLine != null) {
-                rawHTML.append(inputLine);
-                inputLine = in.readLine();
-            }
-            in.close();
-
-            Document doc = Jsoup.parse(rawHTML.toString());
-            Elements rows = doc.getElementsByTag("body").first().getElementsByTag("table").first().getElementsByTag("tbody").first().getElementsByTag("tr");
-
-
-            // The first 2 and the last rows are header related stuff.
-            // Skip
-            for (Element row : rows.stream().skip(2).limit(rows.size() - 3).toList()) {
-                String version = row.getElementsByTag("td").get(1).getElementsByTag("a").first().attr("href");
-                Matcher matcher = PATTERN.matcher(version);
-                if (matcher.find()) {
-                    String dateStr = row.getElementsByTag("td").get(2).text();
-                    // TODO: Figure out the currently installed version and append
-                    kernels.add(new Kernel(version, dateStr, false));
+                // read every line of the HTML content in the URL
+                // and concat each line to the rawHTML string until every line is read.
+                while (inputLine != null) {
+                    rawHTML.append(inputLine);
+                    inputLine = in.readLine();
                 }
+                in.close();
 
+                Document doc = Jsoup.parse(rawHTML.toString());
+                Elements rows = doc.getElementsByTag("body").first().getElementsByTag("table").first().getElementsByTag("tbody").first().getElementsByTag("tr");
+
+                // The first 2 and the last rows are header related stuff.
+                // Skip
+                for (Element row : rows.stream().skip(2).limit(rows.size() - 3).toList()) {
+                    String version = row.getElementsByTag("td").get(1).getElementsByTag("a").first().text();
+                    // Trim the last `/`
+                    Matcher matcher = PATTERN.matcher(version);
+                    if (matcher.find()) {
+                        version = version.substring(0, version.length() - 1);
+                        String dateStr = row.getElementsByTag("td").get(2).text();
+                        // TODO: Figure out the currently installed version and append
+                        kernelsProperty.get().add(new Kernel(version, dateStr, false));
+                    }
+
+                }
+                System.out.println("Done!");
+            } catch (Exception e) {
+                e.printStackTrace();
+                // TODO: Show error to user
             }
+        };
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            // TODO: Show error to user
-        }
+
+        new Thread(job).start();
     }
 
     @Override
     public void start(Stage stage) {
+        Label distributionText = new Label();
+        distributionText.textProperty().bind(distributionProperty);
+
+        Label architectureText = new Label();
+        architectureText.textProperty().bind(architectureProperty);
+
+        Label currentKernelText = new Label();
+        currentKernelText.textProperty().bind(currentKernelProperty);
+
         TableView<Kernel> kernelsTable = new TableView<>();
         kernelsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
 
@@ -121,29 +132,26 @@ public class HelloApplication extends Application {
         versionColumn.setCellValueFactory(new PropertyValueFactory<>("version"));
         dateColumn.setCellValueFactory(new PropertyValueFactory<>("date"));
 
-        ReadOnlyObjectProperty<ObservableList<Kernel>> kernelsProperty = new SimpleObjectProperty<>(FXCollections.observableArrayList());
-        kernelsProperty.get().addAll(kernels);
-
         // Bind data to table
         kernelsTable.getColumns().add(versionColumn);
         kernelsTable.getColumns().add(dateColumn);
         kernelsTable.itemsProperty().bind(kernelsProperty);
 
-        Button btnInventory = new Button("Inventory");
-        Button btnCalcTax = new Button("Tax");
+        Button installButton = new Button("Install");
 
-        btnInventory.disableProperty().bind(kernelsTable.getSelectionModel().selectedItemProperty().isNull());
+        installButton.disableProperty().bind(kernelsTable.getSelectionModel().selectedItemProperty().isNull());
 
-        btnCalcTax.disableProperty().bind(kernelsTable.getSelectionModel().selectedItemProperty().isNull().or(Bindings.select(kernelsTable.getSelectionModel().selectedItemProperty(), "taxable").isEqualTo(false)));
+        HBox topInfoBox = new HBox(distributionText, architectureText, currentKernelText);
+        topInfoBox.setSpacing(8);
 
-        HBox buttonHBox = new HBox(btnInventory, btnCalcTax);
-        buttonHBox.setSpacing(8);
+        HBox bottomButtonBox = new HBox(installButton);
+        bottomButtonBox.setSpacing(8);
 
-        VBox vbox = new VBox(kernelsTable, buttonHBox);
-        vbox.setPadding(new Insets(10));
-        vbox.setSpacing(10);
+        VBox sceneBox = new VBox(topInfoBox, kernelsTable, bottomButtonBox);
+        sceneBox.setPadding(new Insets(10));
+        sceneBox.setSpacing(10);
 
-        Scene scene = new Scene(vbox);
+        Scene scene = new Scene(sceneBox);
 
         stage.setTitle("Ubuntu Kernel Installer");
         stage.setScene(scene);
