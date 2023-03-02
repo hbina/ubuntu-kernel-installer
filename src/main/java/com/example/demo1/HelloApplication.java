@@ -2,18 +2,17 @@ package com.example.demo1;
 
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.event.Event;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
-import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.jsoup.Jsoup;
@@ -39,11 +38,13 @@ public class HelloApplication extends Application {
     // Extend this regex to only match the right rows
     // Is it even worth it?
     final static Pattern PATTERN = Pattern.compile("v(\\d).*", Pattern.CASE_INSENSITIVE);
-
-    final static ReadOnlyObjectProperty<ObservableList<Kernel>> kernelsProperty = new SimpleObjectProperty<>(FXCollections.observableArrayList());
+    /// Properties
+    final static ObservableList<Kernel> availableKernelsObs = FXCollections.observableArrayList();
     final static StringProperty distributionProperty = new SimpleStringProperty();
     final static StringProperty architectureProperty = new SimpleStringProperty();
     final static StringProperty currentKernelProperty = new SimpleStringProperty();
+    final static SimpleStringProperty selectedKernelVersionProperty = new SimpleStringProperty();
+    final static ObservableList<String> selectedKernelDebsObs = FXCollections.observableArrayList();
 
     public static void main(String[] args) {
         launch(args);
@@ -107,7 +108,7 @@ public class HelloApplication extends Application {
                             return null;
                         }
                     }) //
-                    .filter(Objects::nonNull)
+                    .filter(Objects::nonNull) //
                     .collect(Collectors.toCollection(ArrayList::new));
             Collections.reverse(kernels);
 
@@ -117,10 +118,10 @@ public class HelloApplication extends Application {
                 // TODO: Figure out the currently installed version and append
                 var thread = new Thread(() -> {
                     try {
-                        var debs = curlKernelDebs(kernel.getVersion());
+                        var debs = curlKernelDebs(kernel.version);
                         if (!debs.isEmpty()) {
-                            kernel.setDebs(new ArrayList<>(debs));
-                            Platform.runLater(() -> kernelsProperty.get().add(kernel));
+                            kernel.debs.addAll(debs);
+                            Platform.runLater(() -> availableKernelsObs.add(kernel));
                         }
                     } catch (Exception e) {
                         // System.out.println("Skipping " + kernel.getVersion() + " because it does not contain any DEB files.");
@@ -147,7 +148,6 @@ public class HelloApplication extends Application {
         Label currentKernelText = new Label();
         currentKernelText.textProperty().bind(currentKernelProperty);
 
-
         HBox box = new HBox(distributionText, architectureText, currentKernelText);
         box.setSpacing(8);
 
@@ -156,26 +156,26 @@ public class HelloApplication extends Application {
 
 
     public static TableView<Kernel> generateKernelTable() {
-        TableView<Kernel> table = new TableView<>();
+        TableView<Kernel> table = new TableView<>(availableKernelsObs);
+
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        // VBox.setVgrow(table, Priority.ALWAYS);
 
-        VBox.setVgrow(table, Priority.ALWAYS);
+        var versionColumn = new TableColumn<Kernel, String>("Version");
+        var dateColumn = new TableColumn<Kernel, String>("Date");
 
-        TableColumn<Kernel, String> versionColumn = new TableColumn<>("Version");
-        TableColumn<Kernel, String> dateColumn = new TableColumn<>("Date");
+        versionColumn.setCellValueFactory(p -> new ReadOnlyObjectWrapper<>(p.getValue().version));
+        dateColumn.setCellValueFactory(p -> new ReadOnlyObjectWrapper<>(p.getValue().date));
 
-        versionColumn.setCellValueFactory(new PropertyValueFactory<>("version"));
-        dateColumn.setCellValueFactory(new PropertyValueFactory<>("date"));
-
-        // Bind data to table
         table.getColumns().add(versionColumn);
         table.getColumns().add(dateColumn);
-        table.itemsProperty().bind(kernelsProperty);
+
+        // Bind data to table
         table.setRowFactory(tv -> {
             TableRow<Kernel> row = new TableRow<>();
             row.setOnMouseClicked(event -> {
-                var debs = row.getItem().getDebs();
-                System.out.println(debs);
+                selectedKernelDebsObs.clear();
+                selectedKernelDebsObs.addAll(row.getItem().debs);
             });
             return row;
         });
@@ -199,16 +199,18 @@ public class HelloApplication extends Application {
                 .toList();
     }
 
-    public static HBox generateBottomBox(TableView<Kernel> kernelsTable) {
+    public static VBox generateBottomBox(TableView<Kernel> kernelsTable) {
+        ListView<String> lv = new ListView<>(selectedKernelDebsObs);
+        lv.addEventFilter(MouseEvent.MOUSE_PRESSED, Event::consume);
+
         Button button = new Button("Install");
         button.disableProperty().bind(kernelsTable.getSelectionModel().selectedItemProperty().isNull());
 
-        HBox box = new HBox(button);
-        box.setSpacing(8);
+        VBox vbox = new VBox(lv, button);
+        vbox.setSpacing(8);
 
-        return box;
+        return vbox;
     }
-
 
     @Override
     public void init() {
@@ -219,9 +221,9 @@ public class HelloApplication extends Application {
 
     @Override
     public void start(Stage stage) {
-        HBox topBox = generateTopBox();
-        TableView<Kernel> kernelsTable = generateKernelTable();
-        HBox bottomBox = generateBottomBox(kernelsTable);
+        var topBox = generateTopBox();
+        var kernelsTable = generateKernelTable();
+        var bottomBox = generateBottomBox(kernelsTable);
 
         VBox sceneBox = new VBox(topBox, kernelsTable, bottomBox);
         sceneBox.setPadding(new Insets(10));
