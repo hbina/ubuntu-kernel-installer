@@ -1,6 +1,5 @@
-package com.example.demo1;
+package com.example.juki;
 
-import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
@@ -26,7 +25,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 
-public class HelloApplication extends Application {
+public class Application extends javafx.application.Application {
     final static String KERNEL_URL = "https://kernel.ubuntu.com/~kernel-ppa/mainline/";
     // Extend this regex to only match the right rows
     // Is it even worth it?
@@ -294,7 +293,7 @@ public class HelloApplication extends Application {
 
     @Override
     public void init() {
-        var thread = new Thread(HelloApplication::curlIndex);
+        var thread = new Thread(Application::curlIndex);
         thread.setDaemon(true);
         thread.start();
     }
