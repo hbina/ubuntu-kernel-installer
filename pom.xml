@@ -6,7 +6,7 @@
     <groupId>com.example</groupId>
     <artifactId>juki</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <name>juki</name>
+    <name>ubuntu-kernel-installer</name>
     <packaging>jar</packaging>
 
     <properties>

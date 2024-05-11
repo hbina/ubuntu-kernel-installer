@@ -53,7 +53,7 @@ public class Application extends javafx.application.Application {
         String line;
         while ((line = reader.readLine()) != null) {
             builder.append(line);
-            builder.append(System.getProperty("line.separator"));
+            builder.append(System.lineSeparator());
         }
 
         return builder.toString();
@@ -193,25 +193,30 @@ public class Application extends javafx.application.Application {
             // The first 2 and the last rows are header related stuff.
             // Skip
             for (var kernel : kernels) {
-                var thread = new Thread(() -> {
-                    try {
-                        var debs = curlKernelDebs(kernel.version);
-                        if (!debs.isEmpty()) {
-                            kernel.debs.addAll(debs);
-                            Platform.runLater(() -> availableKernelsObs.add(kernel));
-                        }
-                    } catch (Exception ignored) {
-                        // Ignore versions that don't have DEB files
-                    }
-                });
-                thread.setPriority(Thread.MIN_PRIORITY);
-                thread.setDaemon(true);
+                var thread = getThread(kernel);
                 thread.start();
             }
             System.out.println("Done!");
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private static Thread getThread(Kernel kernel) {
+        var thread = new Thread(() -> {
+            try {
+                var debs = curlKernelDebs(kernel.version);
+                if (!debs.isEmpty()) {
+                    kernel.debs.addAll(debs);
+                    Platform.runLater(() -> availableKernelsObs.add(kernel));
+                }
+            } catch (Exception ignored) {
+                // Ignore versions that don't have DEB files
+            }
+        });
+        thread.setPriority(Thread.MIN_PRIORITY);
+        thread.setDaemon(true);
+        return thread;
     }
 
     public static HBox generateTopBox() {
